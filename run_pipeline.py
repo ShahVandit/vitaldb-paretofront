@@ -91,10 +91,17 @@ def main():
     meta = V.build_cache(limit=args.limit)          # resumable; uses existing cache
 
     print("[2] risk model (leakage check)")
-    models, aucs = risk_model.train(meta)
+    models, aucs, roc_data = risk_model.train(meta)
     print("    test AUC  trend=%.3f  leak=%.3f  naive_currentMAP=%.3f  (event rate %.3f)"
           % (aucs["trend"], aucs["leak"], aucs["naive_currentMAP"], aucs["event_rate"]))
     pd.Series(aucs).to_csv(os.path.join(RESULTS, "leakage.csv"))
+    # ROC of the risk score (classifier) vs the pre-event label, on held-out patients
+    from sklearn.metrics import roc_curve
+    roc_rows = []
+    for name in ("trend", "leak", "naive"):
+        fpr, tpr, _ = roc_curve(roc_data["y"], roc_data[name])
+        roc_rows += [{"model": name, "fpr": f, "tpr": t} for f, t in zip(fpr, tpr)]
+    pd.DataFrame(roc_rows).to_csv(os.path.join(RESULTS, "roc_points.csv"), index=False)
 
     print("[3] risk streams + cases")
     risk_by_case = risk_model.risk_streams(models["trend"], meta)
@@ -128,10 +135,15 @@ def main():
     pd.DataFrame({k: {f"{o}_mean": v[o][0] for o in OBJ} for k, v in ci.items()}).T \
         .to_csv(os.path.join(RESULTS, "pareto_ci.csv"))
 
-    print("[6] bandit (offline policy, exact replay)")
-    clf = bandit.train_bandit(frames, [risk_by_case[int(c)] for c in meta.caseid])
-    brows = bandit.sweep(cases, clf, frames,
-                         [risk_by_case[int(c)] for c in meta.caseid],
+    print("[6] bandit (offline policy, patient-level train/test, exact replay)")
+    risk_list = [risk_by_case[int(c)] for c in meta.caseid]
+    idx = np.arange(len(cases))
+    np.random.default_rng(0).shuffle(idx)
+    cut = int(0.7 * len(idx))
+    tr_i, te_i = idx[:cut], idx[cut:]
+    clf = bandit.train_bandit([frames[i] for i in tr_i], [risk_list[i] for i in tr_i])
+    brows = bandit.sweep([cases[i] for i in te_i], clf,
+                         [frames[i] for i in te_i], [risk_list[i] for i in te_i],
                          biases=np.linspace(-2, 2, 9), C=3)
     pd.DataFrame(brows).to_csv(os.path.join(RESULTS, "bandit_sweep.csv"), index=False)
 

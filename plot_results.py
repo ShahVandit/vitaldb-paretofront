@@ -105,10 +105,32 @@ def fig_leakage(lk):
     fig.tight_layout(); fig.savefig(os.path.join(R, "fig_leakage.png")); plt.close(fig)
 
 
+def fig_roc(roc):
+    """ROC of the risk *score* (classifier) — contrast with the policy frontier."""
+    fig, ax = plt.subplots(figsize=(5.6, 5.2))
+    colors = {"trend": GREEN, "naive": ORANGE, "leak": GRAY}
+    names = {"trend": "trend model", "naive": "current-MAP rule", "leak": "with current MAP (leaky)"}
+    for name in ["trend", "naive", "leak"]:
+        d = roc[roc["model"] == name].sort_values("fpr")
+        if len(d):
+            auc = np.trapz(d["tpr"], d["fpr"])
+            ax.plot(d["fpr"], d["tpr"], color=colors[name], lw=1.8,
+                    label=f"{names[name]} (AUC {auc:.2f})")
+    ax.plot([0, 1], [0, 1], ls="--", color="#444444", lw=1, label="chance")
+    ax.set_xlabel("false positive rate")
+    ax.set_ylabel("true positive rate (sensitivity)")
+    ax.set_title("ROC of the risk score\n(a classifier lives here; the alerting policy does not)")
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    fig.tight_layout(); fig.savefig(os.path.join(R, "fig_roc.png")); plt.close(fig)
+
+
 def main():
     f = pd.read_csv(os.path.join(R, "frontier.csv"))
     fig_frontier(f)
     fig_not_an_roc(f)
+    roc_p = os.path.join(R, "roc_points.csv")
+    if os.path.exists(roc_p):
+        fig_roc(pd.read_csv(roc_p))
     if os.path.exists(os.path.join(R, "bandit_sweep.csv")):
         fig_bandit(f, pd.read_csv(os.path.join(R, "bandit_sweep.csv")))
     lk_p = os.path.join(R, "leakage.csv")

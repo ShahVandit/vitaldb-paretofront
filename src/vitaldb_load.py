@@ -1,12 +1,18 @@
 """VitalDB cohort selection, cached track download, cleaning, and 1-min resampling.
 
+Per case we store a cleaned 1-minute grid of the signals defined in ``TRACKS``:
+MAP, systolic/diastolic pressure, HR, SpO2, propofol & remifentanil infusion rates,
+BIS, and ETCO2. MAP (Solar8000/ART_MBP) is required and defines the cohort
+(~3,724 arterial-line cases); the other signals are project-relevant predictors of
+intraoperative hypotension and are stored as NaN columns for cases that lack them.
+The full clinical table (all columns, all cases) is cached separately in
+``_cases.parquet``.
+
 Data facts (verified against the live API):
   - Track `Time` and clinical anestart/aneend are seconds from casestart (=0).
   - Solar8000/ART_MBP is ~2 s sampled and artifact-laden (negative values before
     line insertion, flush spikes). Per-minute median over in-range samples both
-    resamples and despikes.
-  - MAP cohort = cases with Solar8000/ART_MBP (~3,724). HR = Solar8000/HR,
-    SpO2 = Solar8000/PLETH_SPO2 (near-universal coverage).
+    resamples and despikes; out-of-range samples per TRACKS ranges are dropped.
 """
 from __future__ import annotations
 

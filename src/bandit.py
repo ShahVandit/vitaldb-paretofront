@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from features import TREND, case_features, case_labels
+from features import TREND, case_features, case_labels, fill_features
 from metrics import objectives_from_alerts
 
 
@@ -34,7 +34,7 @@ def threshold_cooldown(minute: np.ndarray, signal: np.ndarray,
 
 
 def _context(df, risk):
-    f = case_features(df).fillna(0.0)[TREND].to_numpy()
+    f = fill_features(case_features(df))[TREND].to_numpy()
     return np.column_stack([f, np.asarray(risk, dtype=float)])
 
 

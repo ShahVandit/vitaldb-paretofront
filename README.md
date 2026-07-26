@@ -76,3 +76,14 @@ python run_demo.py            # synthetic; swap in vitaldb_load once credentials
 - **Not off-policy evaluation**: alerting does not alter the logged trajectory, so
   policy scores are exact retrospective replay, not OPE. True OPE would require the
   logged clinician *treatment* actions (vasopressor/fluid) and is scoped separately.
+
+src/vitaldb_load.py — gets the data in (done)
+src/labels.py ← next: defines a hypotension event
+src/policies.py — what an alert policy is (the τ, m, C, trend knobs)
+src/metrics.py — how a policy is scored on the 5 objectives
+src/frontier.py — picks the non-dominated policies (the Pareto part)
+src/features.py then src/risk_model.py — builds the risk score (and the leakage check)
+src/bandit.py — the RL part (learns an alerting policy)
+src/robustness.py — subgroup / missing-signal / threshold checks
+run_pipeline.py — the glue that calls everything in order
+plot_results.py — makes the figures
