@@ -43,20 +43,20 @@ def _split(f):
 
 def fig_frontier(f):
     model, base = _split(f)
-    sens, burd = model["sensitivity"].to_numpy(), model["burden"].to_numpy()
-    p = _pareto_idx(model, sens, burd)
+    util, burd = model["utility"].to_numpy(), model["burden"].to_numpy()
+    p = _pareto_idx(model, util, burd)          # higher utility, lower burden
     order = np.argsort(burd[p])
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
-    ax.scatter(burd, sens, s=16, color=GRAY, alpha=0.4, label="model policies",
+    ax.scatter(burd, util, s=16, color=GRAY, alpha=0.4, label="model policies",
                edgecolor="none")
-    ax.plot(burd[p][order], sens[p][order], "-o", color=BLUE, ms=5, lw=1.8,
+    ax.plot(burd[p][order], util[p][order], "-o", color=BLUE, ms=5, lw=1.8,
             label="model Pareto frontier")
     if len(base):
-        ax.plot(base["burden"], base["sensitivity"], "-D", color=ORANGE, ms=6,
+        ax.plot(base["burden"], base["utility"], "-D", color=ORANGE, ms=6,
                 lw=1.6, label="MAP-threshold baseline")
     ax.set_xlabel("alert burden  (alerts / case-hour)")
-    ax.set_ylabel("event sensitivity")
-    ax.set_title("Model policies vs the MAP-threshold baseline")
+    ax.set_ylabel("clinical utility  (detection × timeliness)")
+    ax.set_title("Utility vs burden: model policies vs the MAP baseline")
     ax.legend(frameon=False, fontsize=8.5, loc="lower right")
     fig.tight_layout(); fig.savefig(os.path.join(R, "fig_frontier.png")); plt.close(fig)
 
@@ -74,23 +74,6 @@ def fig_not_an_roc(f):
                  "(same ROC point, different temporal behavior — not an ROC)")
     fig.colorbar(sc, label="false-alert rate / case-hour")
     fig.tight_layout(); fig.savefig(os.path.join(R, "fig_not_an_roc.png")); plt.close(fig)
-
-
-def fig_bandit(f, b):
-    model, _ = _split(f)
-    sens, burd = model["sensitivity"].to_numpy(), model["burden"].to_numpy()
-    p = _pareto_idx(model, sens, burd); order = np.argsort(burd[p])
-    fig, ax = plt.subplots(figsize=(6.4, 4.6))
-    ax.plot(burd[p][order], sens[p][order], "-o", color=BLUE, ms=4, lw=1.6,
-            label="grid Pareto frontier")
-    bb = b.sort_values("burden")
-    ax.plot(bb["burden"], bb["sensitivity"], "-s", color=GREEN, ms=5, lw=1.8,
-            label="learned bandit policy")
-    ax.set_xlabel("alert burden  (alerts / case-hour)")
-    ax.set_ylabel("event sensitivity")
-    ax.set_title("Learned offline bandit policy vs the interpretable frontier")
-    ax.legend(frameon=False, fontsize=9, loc="lower right")
-    fig.tight_layout(); fig.savefig(os.path.join(R, "fig_bandit.png")); plt.close(fig)
 
 
 def fig_leakage(lk):
@@ -136,8 +119,6 @@ def main():
     roc_p = os.path.join(R, "roc_points.csv")
     if os.path.exists(roc_p):
         fig_roc(pd.read_csv(roc_p))
-    if os.path.exists(os.path.join(R, "bandit_sweep.csv")):
-        fig_bandit(f, pd.read_csv(os.path.join(R, "bandit_sweep.csv")))
     lk_p = os.path.join(R, "leakage.csv")
     if os.path.exists(lk_p):
         lk = pd.read_csv(lk_p, index_col=0).iloc[:, 0]

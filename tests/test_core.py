@@ -1,4 +1,5 @@
-"""Core unit tests: event detection, cooldown, and exact-replay invariance."""
+"""Core unit tests: episode clustering, one-to-one matching, utility, exclusion,
+policy cooldown/persistence, and exact-replay order invariance."""
 import os
 import sys
 
@@ -6,54 +7,72 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from labels import hypotension_onsets  # noqa: E402
-from metrics import CaseEval, objectives_from_alerts  # noqa: E402
+from labels import exclude_mask, hypotension_episodes  # noqa: E402
+from metrics import BETA, CaseEval, objectives_from_alerts, score_case  # noqa: E402
 from policies import Policy, naive_threshold_policy  # noqa: E402
 
 
-def test_event_detection_and_nan_break():
-    mapp = np.array([80, 60, 60, 80, np.nan, 60, 80])  # events at idx1 and idx5
-    assert hypotension_onsets(mapp, thr=65, min_len=1) == [1, 5]
-    # a NaN inside a low run must break the run
-    mapp2 = np.array([60, np.nan, 60])
-    assert hypotension_onsets(mapp2, thr=65, min_len=2) == []
+def _case(n, episodes, risk=None, sg=None):
+    return CaseEval(minute=np.arange(n), risk=np.zeros(n) if risk is None else risk,
+                    episodes=episodes, hours=n / 60.0,
+                    exclude=exclude_mask(n, episodes), subgroup=sg or {})
+
+
+def test_episode_merging():
+    # two dips 3 min apart -> ONE episode; 20 min apart -> TWO
+    close = np.array([80, 80, 60, 60, 80, 80, 80, 60, 60, 80, 80])
+    assert hypotension_episodes(close) == [(2, 9)]
+    far = np.array([60, 60] + [80] * 20 + [60, 60])
+    assert hypotension_episodes(far) == [(0, 2), (22, 24)]
+
+
+def test_one_to_one_matching():
+    # two episodes; a single alert sits in both windows -> detects only ONE
+    case = _case(50, [(20, 21), (32, 33)])
+    s = score_case(case, np.array([18]))
+    assert s["n_detected"] == 1
+
+
+def test_utility_rewards_detection_and_timeliness():
+    ep = [(20, 21)]
+    # missed -> utility 0
+    assert objectives_from_alerts([_case(40, ep)], [np.array([])])["utility"] == 0.0
+    # 1-min warning -> BETA (intrinsic detection value, not 0)
+    u1 = objectives_from_alerts([_case(40, ep)], [np.array([19])])["utility"]
+    assert abs(u1 - BETA) < 1e-9
+    # 10-min warning -> 1.0 (max)
+    u10 = objectives_from_alerts([_case(40, ep)], [np.array([10])])["utility"]
+    assert abs(u10 - 1.0) < 1e-9
+
+
+def test_already_hypotensive_alert_not_false():
+    case = _case(50, [(20, 25)])            # episode 20-24; refractory to 35
+    s = score_case(case, np.array([22, 40]))  # 22 in-episode (legit), 40 false
+    assert s["n_false"] == 1
 
 
 def test_cooldown_collapses_repeats():
     minute = np.arange(10)
     risk = np.array([0, 0.9, 0.9, 0.9, 0, 0, 0.9, 0, 0, 0])
-    no_cd = naive_threshold_policy(0.5).alert_times(minute, risk)
-    cd = Policy(tau=0.5, C=5).alert_times(minute, risk)
-    assert len(no_cd) == 4                # fires every minute above threshold
-    assert list(cd) == [1, 6]             # cooldown collapses the 1-3 burst to one
+    assert len(naive_threshold_policy(0.5).alert_times(minute, risk)) == 4
+    assert list(Policy(tau=0.5, C=5).alert_times(minute, risk)) == [1, 6]
 
 
 def test_persistence_requires_sustained_risk():
     minute = np.arange(5)
-    risk = np.array([0.9, 0, 0.9, 0.9, 0])   # only idx2-3 is a 2-min run
+    risk = np.array([0.9, 0, 0.9, 0.9, 0])
     assert list(Policy(tau=0.5, m=2).alert_times(minute, risk)) == [3]
 
 
-def _toy_cases():
-    cs = []
-    for k in range(4):
-        n = 30
-        risk = np.zeros(n)
-        risk[10:14] = 0.9
-        ce = CaseEval(minute=np.arange(n), risk=risk,
-                      onsets=[15], hours=n / 60.0, subgroup={"asa": str(k % 2)})
-        cs.append(ce)
-    return cs
-
-
 def test_exact_replay_order_invariance():
-    cases = _toy_cases()
+    cases = [_case(30, [(15, 16)], risk=np.r_[np.zeros(10), np.full(4, 0.9), np.zeros(16)],
+                   sg={"asa": str(k % 2)}) for k in range(4)]
     p = Policy(tau=0.5, C=3)
     a = [p.alert_times(c.minute, c.risk) for c in cases]
     o1 = objectives_from_alerts(cases, a)
     idx = [2, 0, 3, 1]
     o2 = objectives_from_alerts([cases[i] for i in idx], [a[i] for i in idx])
-    for k in ["sensitivity", "false_rate", "burden"]:
+    for k in ["utility", "sensitivity", "false_rate", "burden"]:
         assert abs(o1[k] - o2[k]) < 1e-9
 
 

@@ -25,6 +25,28 @@ def pareto_indices(rows: list[dict], names: list[str]) -> list[int]:
     return nd
 
 
+def is_feasible(row: dict, false_cap: float, ppv_min: float = 0.40,
+                gap_max: float = 0.10) -> bool:
+    """Clinical safety constraints on an alerting policy (review C5)."""
+    ppv = row.get("ppv", float("nan"))
+    return (row.get("false_rate", float("inf")) <= false_cap
+            and np.isfinite(ppv) and ppv >= ppv_min
+            and row.get("disparity", float("inf")) <= gap_max)
+
+
+def constrained_pareto(rows: list[dict], names: list[str], false_cap: float,
+                       ppv_min: float = 0.40, gap_max: float = 0.10):
+    """Pareto set among policies that satisfy the feasibility constraints.
+
+    Returns (pareto_indices_into_rows, feasible_indices_into_rows)."""
+    feas = [i for i, r in enumerate(rows)
+            if is_feasible(r, false_cap, ppv_min, gap_max)]
+    if not feas:
+        return [], []
+    nd = pareto_indices([rows[i] for i in feas], names)
+    return [feas[k] for k in nd], feas
+
+
 def evaluate_grid(cases, policies, names) -> list[dict]:
     """Objective vector + policy params for each policy in the grid."""
     rows = []

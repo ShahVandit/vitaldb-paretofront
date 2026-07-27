@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from labels import hypotension_onsets
+from labels import exclude_mask, hypotension_episodes
 from metrics import W_MAX, W_MIN
 
 TREND = ["map_slope3", "map_slope5", "map_std5",
@@ -84,12 +84,19 @@ def fill_features(f: pd.DataFrame) -> pd.DataFrame:
     return f.apply(lambda c: c.fillna(FILL.get(c.name, 0.0)))
 
 
-def case_labels(df: pd.DataFrame) -> np.ndarray:
-    """y_t = 1 if a hypotension onset lies in (t+W_MIN, t+W_MAX]."""
+def case_labels(df: pd.DataFrame):
+    """Return (y, valid) per minute.
+
+    y_t = 1 if an episode onset lies in (t+W_MIN, t+W_MAX].
+    valid_t = False for minutes that are already hypotensive or in the post-episode
+    refractory window (excluded from training and scoring, per review C6).
+    """
+    mapp = df["map"].to_numpy(dtype=float)
     n = len(df)
-    onsets = hypotension_onsets(df["map"].to_numpy(dtype=float))
+    episodes = hypotension_episodes(mapp)
     y = np.zeros(n, dtype=int)
-    for o in onsets:
+    for o, _ in episodes:
         lo, hi = o - W_MAX, o - W_MIN          # minutes from which o is foreseeable
         y[max(0, lo):max(0, hi) + 1] = 1
-    return y
+    valid = ~exclude_mask(n, episodes)
+    return y, valid

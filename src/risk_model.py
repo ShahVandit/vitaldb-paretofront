@@ -29,8 +29,9 @@ def build_dataset(meta: pd.DataFrame):
         if df["map"].notna().sum() < 20:
             continue
         f = case_features(df)
-        y = case_labels(df)
-        keep = f["map_slope3"].notna().to_numpy()   # need some trajectory context
+        y, valid = case_labels(df)
+        # need trajectory context AND drop already-hypotensive/refractory minutes (C6)
+        keep = f["map_slope3"].notna().to_numpy() & valid
         frames.append(f[keep])
         ys.append(y[keep])
         groups.append(np.full(keep.sum(), int(cid)))
