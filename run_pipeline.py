@@ -27,9 +27,13 @@ from frontier import (bootstrap_policy, evaluate_grid, not_an_roc_pairs,  # noqa
                       pareto_indices)
 from labels import hypotension_onsets  # noqa: E402
 from metrics import CaseEval  # noqa: E402
-from policies import naive_threshold_policy, policy_grid  # noqa: E402
+from metrics import objectives as obj_of  # noqa: E402
+from policies import Policy, naive_threshold_policy, policy_grid  # noqa: E402
 
 OBJ = ["sensitivity", "warning_time", "false_rate", "burden", "disparity"]
+# Literature-standard baseline: a MAP-threshold alarm (RCT/critique studies use
+# MAP<70-75; the RCT comparator is MAP<72). We sweep it into its own frontier.
+MAP_THRESHOLDS = [65, 70, 72, 75]
 RESULTS = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(RESULTS, exist_ok=True)
 
@@ -109,17 +113,25 @@ def main():
 
     print("[4] policy grid + Pareto")
     grid = make_grid()
-    rows = evaluate_grid(cases, grid, OBJ)
-    # clinically-honest strawman: alert on current MAP only (near-zero lead time)
-    map_risk = {int(r.caseid):
-                np.clip((70 - V.load_cached_case(int(r.caseid))["map"].to_numpy(float))
-                        / 20.0, 0, 1)
-                for r in meta.itertuples(index=False)}
-    cm_cases, _ = build_cases(meta, map_risk)
-    from metrics import objectives as _obj
-    cm = dict(_obj(cm_cases, naive_threshold_policy(0.5)))
-    cm.update(tau=0.5, m=1, C=0, trend=None, method="current_map")
-    rows.append(cm)
+    rows = evaluate_grid(cases, grid, OBJ)          # model-risk policies (method=NaN)
+
+    # --- literature-standard baseline: MAP-threshold alarm family ---
+    # Alert when MAP < T (T in 65..75), with/without cooldown. This is the exact
+    # comparator used in the HPI-vs-MAP studies and the MAP<72 RCT.
+    prel = []                                        # preload MAP + subgroup once
+    for r in meta.itertuples(index=False):
+        m = V.load_cached_case(int(r.caseid))["map"].to_numpy(float)
+        sg = {"asa": str(r.asa), "age_band": age_band(r.age), "sex": r.sex}
+        prel.append((m, sg))
+    for T in MAP_THRESHOLDS:
+        for C in (0, 5):
+            cs = [CaseEval(minute=np.arange(len(m)), risk=(m < T).astype(float),
+                           onsets=hypotension_onsets(m), hours=len(m) / 60.0,
+                           subgroup=sg) for m, sg in prel]
+            o = dict(obj_of(cs, Policy(tau=0.5, m=1, C=C)))   # fire while MAP<T
+            o.update(tau=0.5, m=1, C=C, trend=None, method=f"MAP<{T}")
+            rows.append(o)
+
     pareto = pareto_indices(rows, OBJ)
     pd.DataFrame(rows).to_csv(os.path.join(RESULTS, "frontier.csv"), index=False)
     plot_frontier(rows, pareto, os.path.join(RESULTS, "frontier.png"))

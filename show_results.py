@@ -1,11 +1,9 @@
-"""Plain-language view of how well the alerting policies actually perform.
-
-Reads the CSVs written by run_pipeline.py and prints a few real operating points,
-the naive current-MAP baseline, and one recommended point under an alert budget.
-No plotting -- just the numbers, explained.
+"""Plain-language view of how well the alerting policies perform, vs the
+literature-standard MAP-threshold baseline (MAP<70-75; the RCT uses MAP<72).
 
   python show_results.py
   python show_results.py --budget 6      # alerts/case-hour cap for the recommendation
+  python show_results.py --ref "MAP<72"  # baseline to compare the model against
 """
 from __future__ import annotations
 
@@ -15,64 +13,79 @@ import os
 import pandas as pd
 
 R = os.path.join(os.path.dirname(__file__), "results")
-COLS = ["sensitivity", "warning_time", "false_rate", "burden"]
 
 
 def _fmt(row) -> str:
-    return (f"  sensitivity {row['sensitivity']*100:5.1f}%   "
-            f"warning {row['warning_time']:4.1f} min   "
+    return (f"  sens {row['sensitivity']*100:5.1f}%   "
+            f"warn {row['warning_time']:4.1f}m   "
+            f"PPV {row['ppv']*100:5.1f}%   "
             f"false {row['false_rate']:5.2f}/hr   "
             f"burden {row['burden']:5.2f}/hr")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--budget", type=float, default=6.0,
-                    help="max alerts/case-hour for the recommended operating point")
+    ap.add_argument("--budget", type=float, default=6.0)
+    ap.add_argument("--ref", default="MAP<72")
     args = ap.parse_args()
 
-    d = pd.read_csv(os.path.join(R, "frontier.csv")).sort_values("burden")
+    d = pd.read_csv(os.path.join(R, "frontier.csv"))
+    meth = d["method"].astype(str) if "method" in d.columns else pd.Series("", index=d.index)
+    base = d[meth.str.startswith("MAP<")].copy()      # baseline family
+    model = d[~meth.str.startswith("MAP<")].sort_values("burden")  # learned-risk policies
 
-    print("=" * 70)
-    print("WHAT THE NUMBERS MEAN (per policy)")
-    print("=" * 70)
-    print("  sensitivity  = % of real hypotension events we alerted on IN TIME")
-    print("  warning      = median minutes of lead before the event")
-    print("  false        = false alarms per case-hour")
-    print("  burden       = total alerts per case-hour (real + false)")
-    print()
+    print("=" * 74)
+    print("METRICS:  sens = % events caught in time | warn = median lead (min)")
+    print("          PPV = % of alerts that were real | false, burden = per case-hour")
+    print("=" * 74)
 
-    print("=" * 70)
-    print("SAMPLE OPERATING POINTS  (low -> high alert burden)")
-    print("=" * 70)
-    idx = [0, len(d) // 4, len(d) // 2, 3 * len(d) // 4, len(d) - 1]
+    print("\nLITERATURE-STANDARD BASELINE  (alert when MAP < T):")
+    for _, r in base.sort_values(["tau", "burden"]).iterrows():
+        tag = f"{r['method']} (cooldown {int(r['C'])}m)"
+        print(f"  {tag:22s}" + _fmt(r))
+
+    print("\nMODEL-RISK POLICIES  (sample, low -> high burden):")
+    idx = [0, len(model) // 4, len(model) // 2, 3 * len(model) // 4, len(model) - 1]
     for i in idx:
-        print(_fmt(d.iloc[i]))
-    print()
+        print(_fmt(model.iloc[i]))
 
-    if "method" in d.columns and (d["method"] == "current_map").any():
-        print("NAIVE CURRENT-MAP RULE  (fires when MAP already low; ~no early warning)")
-        print(_fmt(d[d["method"] == "current_map"].iloc[0]))
-        print()
+    # --- fair head-to-head: model vs the reference baseline at matched burden ---
+    print("\n" + "=" * 74)
+    print(f"HEAD-TO-HEAD vs {args.ref}  (does the model beat it at equal burden?)")
+    print("=" * 74)
+    ref = base[base["method"] == args.ref]
+    ref = ref[ref["C"] == 0]
+    if len(ref):
+        ref = ref.iloc[0]
+        print(f"  baseline {args.ref:8s}" + _fmt(ref))
+        cand = model[model["burden"] <= ref["burden"] + 1e-9]
+        if len(cand):
+            best = cand.sort_values("sensitivity", ascending=False).iloc[0]
+            print("  model @<=burden " + _fmt(best))
+            dv = (best["sensitivity"] - ref["sensitivity"]) * 100
+            print(f"  --> at <= the baseline's burden, model sensitivity is "
+                  f"{dv:+.1f} points vs baseline")
+        else:
+            print("  (no model policy at or below the baseline's burden)")
+    else:
+        print(f"  reference '{args.ref}' not found in baseline rows")
 
-    print("=" * 70)
-    print(f"RECOMMENDED POINT  (highest sensitivity with burden <= {args.budget}/hr)")
-    print("=" * 70)
-    feasible = d[d["burden"] <= args.budget]
+    # --- recommended model operating point under an alert budget ---
+    print("\n" + "=" * 74)
+    print(f"RECOMMENDED MODEL POINT  (max sensitivity, burden <= {args.budget}/hr)")
+    print("=" * 74)
+    feasible = model[model["burden"] <= args.budget]
     if len(feasible):
         best = feasible.sort_values("sensitivity", ascending=False).iloc[0]
         print(_fmt(best))
-        knobs = {k: best[k] for k in ("tau", "m", "C", "trend") if k in best}
-        print("  policy knobs:", knobs)
+        print("  knobs:", {k: best[k] for k in ("tau", "m", "C", "trend") if k in best})
     else:
-        print(f"  no policy stays under {args.budget} alerts/hr; raise --budget")
-    print()
+        print(f"  no policy under {args.budget}/hr; raise --budget")
 
     lk = os.path.join(R, "leakage.csv")
     if os.path.exists(lk):
         s = pd.read_csv(lk, index_col=0).iloc[:, 0]
-        print("RISK-MODEL AUC (context):",
-              f"trend={s['trend']:.3f}  leak={s['leak']:.3f} "
+        print(f"\nrisk-model AUC:  trend={s['trend']:.3f}  leak={s['leak']:.3f}  "
               f"naive={s['naive_currentMAP']:.3f}")
 
 

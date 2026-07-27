@@ -35,32 +35,36 @@ def _pareto_idx(rows, sens, burd):
     return keep
 
 
+def _split(f):
+    meth = f["method"].astype(str) if "method" in f.columns else pd.Series("", index=f.index)
+    is_base = meth.str.startswith("MAP<")
+    return f[~is_base].reset_index(drop=True), f[is_base].sort_values("burden")
+
+
 def fig_frontier(f):
-    sens, burd = f["sensitivity"].to_numpy(), f["burden"].to_numpy()
-    p = _pareto_idx(f, sens, burd)
+    model, base = _split(f)
+    sens, burd = model["sensitivity"].to_numpy(), model["burden"].to_numpy()
+    p = _pareto_idx(model, sens, burd)
     order = np.argsort(burd[p])
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
-    ax.scatter(burd, sens, s=16, color=GRAY, alpha=0.45, label="candidate policies",
+    ax.scatter(burd, sens, s=16, color=GRAY, alpha=0.4, label="model policies",
                edgecolor="none")
     ax.plot(burd[p][order], sens[p][order], "-o", color=BLUE, ms=5, lw=1.8,
-            label="Pareto frontier")
-    if "method" in f.columns and (f["method"] == "current_map").any():
-        cm = f[f["method"] == "current_map"].iloc[0]
-        ax.scatter([cm.burden], [cm.sensitivity], marker="D", s=70, color=ORANGE,
-                   zorder=5, label="current-MAP rule")
-        ax.annotate("current-MAP rule\n(low warning time)",
-                    (cm.burden, cm.sensitivity), textcoords="offset points",
-                    xytext=(10, -6), color=ORANGE, fontsize=8.5)
+            label="model Pareto frontier")
+    if len(base):
+        ax.plot(base["burden"], base["sensitivity"], "-D", color=ORANGE, ms=6,
+                lw=1.6, label="MAP-threshold baseline")
     ax.set_xlabel("alert burden  (alerts / case-hour)")
     ax.set_ylabel("event sensitivity")
-    ax.set_title("Alert-policy trade-off: sensitivity vs clinician burden")
+    ax.set_title("Model policies vs the MAP-threshold baseline")
     ax.legend(frameon=False, fontsize=8.5, loc="lower right")
     fig.tight_layout(); fig.savefig(os.path.join(R, "fig_frontier.png")); plt.close(fig)
 
 
 def fig_not_an_roc(f):
     """Warning time vs burden at ~matched sensitivity: the ROC-invisible axis."""
-    band = f[(f["sensitivity"] >= 0.9)].copy()
+    model, _ = _split(f)
+    band = model[(model["sensitivity"] >= 0.9)].copy()
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     sc = ax.scatter(band["burden"], band["warning_time"], c=band["false_rate"],
                     cmap="viridis", s=26, edgecolor="white", linewidth=0.4)
@@ -73,8 +77,9 @@ def fig_not_an_roc(f):
 
 
 def fig_bandit(f, b):
-    sens, burd = f["sensitivity"].to_numpy(), f["burden"].to_numpy()
-    p = _pareto_idx(f, sens, burd); order = np.argsort(burd[p])
+    model, _ = _split(f)
+    sens, burd = model["sensitivity"].to_numpy(), model["burden"].to_numpy()
+    p = _pareto_idx(model, sens, burd); order = np.argsort(burd[p])
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     ax.plot(burd[p][order], sens[p][order], "-o", color=BLUE, ms=4, lw=1.6,
             label="grid Pareto frontier")

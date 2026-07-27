@@ -100,8 +100,9 @@ def objectives_from_alerts(cases: list[CaseEval], alerts_list: list[np.ndarray],
     disparity = (max(gs) - min(gs)) if len(gs) > 1 else 0.0
 
     return {
-        "sensitivity": det / ev if ev else np.nan,
-        "warning_time": float(np.median(warn)) if warn else 0.0,
+        "sensitivity": det / ev if ev else np.nan,           # 1 - missed-event rate
+        "warning_time": float(np.median(warn)) if warn else 0.0,  # time-to-event
+        "ppv": (alerts - false) / alerts if alerts else np.nan,   # positive predictive value
         "false_rate": false / hrs,
         "burden": alerts / hrs,
         "disparity": disparity,
