@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from features import TREND, case_features, case_labels, fill_features
 from metrics import objectives_from_alerts
@@ -50,8 +52,11 @@ def train_bandit(frames, risks, w_detect=1.0, w_false=1.0, seed=0):
     X = np.vstack(X)
     y = np.concatenate(y)
     sw = np.concatenate(sw)
-    clf = LogisticRegression(max_iter=1000, random_state=seed)
-    clf.fit(X, y, sample_weight=sw)
+    # standardize: context features span very different scales (minute, BIS, slopes),
+    # so lbfgs needs scaling to converge.
+    clf = make_pipeline(StandardScaler(),
+                        LogisticRegression(max_iter=5000, random_state=seed))
+    clf.fit(X, y, logisticregression__sample_weight=sw)
     return clf
 
 
