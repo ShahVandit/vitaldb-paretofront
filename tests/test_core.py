@@ -45,10 +45,19 @@ def test_utility_rewards_detection_and_timeliness():
     assert abs(u10 - 1.0) < 1e-9
 
 
-def test_already_hypotensive_alert_not_false():
+def test_already_hypotensive_alert_suppressed():
     case = _case(50, [(20, 25)])            # episode 20-24; refractory to 35
-    s = score_case(case, np.array([22, 40]))  # 22 in-episode (legit), 40 false
-    assert s["n_false"] == 1
+    s = score_case(case, np.array([22, 40]))  # 22 suppressed (in-episode), 40 kept+false
+    assert s["n_alerts"] == 1 and s["n_false"] == 1
+
+
+def test_ppv_is_actionable():
+    # one episode, four pre-window alerts -> only ONE is useful; PPV = 1/4
+    case = _case(40, [(20, 21)])
+    s = score_case(case, np.array([8, 10, 12, 19]))
+    assert s["n_detected"] == 1 and s["n_alerts"] == 4 and s["n_false"] == 3
+    o = objectives_from_alerts([case], [np.array([8, 10, 12, 19])])
+    assert abs(o["ppv"] - 0.25) < 1e-9
 
 
 def test_cooldown_collapses_repeats():

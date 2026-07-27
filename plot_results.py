@@ -41,23 +41,27 @@ def _split(f):
     return f[~is_base].reset_index(drop=True), f[is_base].sort_values("burden")
 
 
-def fig_frontier(f):
+def fig_frontier(f, false_cap=2.0, ppv_min=0.40, gap_max=0.10):
+    """Joint constrained frontier: Pareto over feasible MODEL + BASELINE policies."""
     model, base = _split(f)
-    util, burd = model["utility"].to_numpy(), model["burden"].to_numpy()
-    p = _pareto_idx(model, util, burd)          # higher utility, lower burden
-    order = np.argsort(burd[p])
+    feas = f[(f["false_rate"] <= false_cap) & (f["ppv"] >= ppv_min)
+             & (f["disparity"] <= gap_max)].reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
-    ax.scatter(burd, util, s=16, color=GRAY, alpha=0.4, label="model policies",
-               edgecolor="none")
-    ax.plot(burd[p][order], util[p][order], "-o", color=BLUE, ms=5, lw=1.8,
-            label="model Pareto frontier")
+    ax.scatter(model["burden"], model["utility"], s=16, color=GRAY, alpha=0.35,
+               edgecolor="none", label="model policies")
     if len(base):
-        ax.plot(base["burden"], base["utility"], "-D", color=ORANGE, ms=6,
-                lw=1.6, label="MAP-threshold baseline")
+        ax.scatter(base["burden"], base["utility"], marker="D", s=40, color=ORANGE,
+                   label="MAP baselines")
+    if len(feas):
+        u, b = feas["utility"].to_numpy(), feas["burden"].to_numpy()
+        p = _pareto_idx(feas, u, b)
+        order = np.argsort(b[p])
+        ax.plot(b[p][order], u[p][order], "-o", color=BLUE, ms=5, lw=1.8, zorder=5,
+                label=f"feasible frontier (false≤{false_cap:g}/hr, PPV≥{ppv_min:g})")
     ax.set_xlabel("alert burden  (alerts / case-hour)")
     ax.set_ylabel("clinical utility  (detection × timeliness)")
-    ax.set_title("Utility vs burden: model policies vs the MAP baseline")
-    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    ax.set_title("Constrained utility-vs-burden frontier (model + MAP baselines)")
+    ax.legend(frameon=False, fontsize=8, loc="lower right")
     fig.tight_layout(); fig.savefig(os.path.join(R, "fig_frontier.png")); plt.close(fig)
 
 

@@ -55,10 +55,10 @@ def main():
     if len(ref):
         ref = ref.iloc[0]
         print("  baseline " + _fmt(ref))
-        cand = model[model["burden"] <= ref["burden"] + 1e-9]
+        cand = feasible(model[model["burden"] <= ref["burden"] + 1e-9])
         if len(cand):
             best = cand.sort_values("utility", ascending=False).iloc[0]
-            print("  model    " + _fmt(best))
+            print("  model    " + _fmt(best) + "  [feasible]")
             print(f"  --> at <= baseline burden: model utility {best['utility']-ref['utility']:+.2f}, "
                   f"PPV {(best['ppv']-ref['ppv'])*100:+.1f} pts")
         else:

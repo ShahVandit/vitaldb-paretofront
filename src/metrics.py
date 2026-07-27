@@ -59,15 +59,16 @@ class CaseEval:
 
 
 def score_case(case: CaseEval, alerts: np.ndarray) -> dict:
-    """Per-case counts with one-to-one alert<->episode matching."""
+    """Per-case counts with one-to-one alert<->episode matching and **actionable**
+    accounting: alerts fired while already hypotensive / in refractory are suppressed
+    (the system would not alert during known ongoing hypotension), and only the single
+    matched alert per episode is 'useful' -- every other alert counts against PPV.
+    So PPV = matched_alerts / total_alerts (not the older near-episode leniency)."""
     n = len(case.minute)
     a = np.sort(np.asarray(alerts, dtype=int)) if len(alerts) else np.empty(0, int)
+    if a.size and case.exclude.size:                    # suppress excluded-time alerts
+        a = a[~case.exclude[np.clip(a, 0, n - 1)]]
     used = np.zeros(len(a), dtype=bool)
-
-    # legit zone = pre-windows (union) OR already-hypotensive/refractory
-    legit = case.exclude.copy() if case.exclude.size else np.zeros(n, bool)
-    for onset, _ in case.episodes:
-        legit[max(0, onset - W_MAX):max(0, onset)] = True
 
     matched, warn, util = 0, [], 0.0
     for onset, _end in sorted(case.episodes):
@@ -81,16 +82,11 @@ def score_case(case: CaseEval, alerts: np.ndarray) -> dict:
             w = onset - int(a[j])
             warn.append(w)
             util += BETA + (1 - BETA) * timing_reward(w)
-    # missed episodes contribute 0 to util (already excluded from the sum)
 
-    if a.size:
-        idx = np.clip(a, 0, n - 1)
-        false = int(np.count_nonzero(~legit[idx]))
-    else:
-        false = 0
-
+    n_alerts = int(a.size)
+    n_false = n_alerts - matched          # every non-matched alert is non-actionable
     return {"n_events": len(case.episodes), "n_detected": matched, "warn": warn,
-            "util": util, "n_alerts": int(a.size), "n_false": false,
+            "util": util, "n_alerts": n_alerts, "n_false": n_false,
             "hours": case.hours}
 
 
