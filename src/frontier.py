@@ -57,13 +57,23 @@ def evaluate_grid(cases, policies, names) -> list[dict]:
     return rows
 
 
-def bootstrap_policy(cases, policy, names, n_boot=200, seed=0) -> dict:
-    """Mean and 95% CI for each objective under case-level resampling."""
+def bootstrap_policy(cases, policy, names, subjects=None, n_boot=200, seed=0) -> dict:
+    """Mean and 95% CI per objective. If `subjects` (one id per case) is given, use a
+    **cluster bootstrap over subjects** (correct unit of resampling; review C6);
+    otherwise resample cases."""
     rng = np.random.default_rng(seed)
     n = len(cases)
+    if subjects is not None:
+        subjects = np.asarray(subjects)
+        uniq = np.unique(subjects)
+        by_sub = {s: np.where(subjects == s)[0] for s in uniq}
     samp = {k: [] for k in names}
     for _ in range(n_boot):
-        idx = rng.integers(0, n, n)
+        if subjects is not None:
+            chosen = rng.choice(uniq, len(uniq), replace=True)
+            idx = np.concatenate([by_sub[s] for s in chosen])
+        else:
+            idx = rng.integers(0, n, n)
         o = objectives([cases[i] for i in idx], policy)
         for k in names:
             samp[k].append(o[k])

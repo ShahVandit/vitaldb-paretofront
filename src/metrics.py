@@ -53,8 +53,10 @@ class CaseEval:
         mapp = df["map"].to_numpy(dtype=float)
         n = len(mapp)
         eps = hypotension_episodes(mapp)
+        ex = exclude_mask(n, eps)
+        # rate denominator = eligible monitoring hours (exclude active-event/refractory)
         return cls(minute=np.arange(n), risk=np.asarray(risk, float), episodes=eps,
-                   hours=n / 60.0, exclude=exclude_mask(n, eps),
+                   hours=float(np.count_nonzero(~ex)) / 60.0, exclude=ex,
                    subgroup=subgroup or {})
 
 
@@ -107,7 +109,8 @@ def objectives_from_alerts(cases: list[CaseEval], alerts_list: list[np.ndarray],
         d, e = groups.get(g, (0, 0))
         groups[g] = (d + s["n_detected"], e + s["n_events"])
     gs = [d / e for d, e in groups.values() if e >= 5]
-    disparity = (max(gs) - min(gs)) if len(gs) > 1 else 0.0
+    # A missing comparison is unknown, not evidence of equal performance.
+    disparity = (max(gs) - min(gs)) if len(gs) > 1 else np.nan
 
     return {
         "utility": util / ev if ev else np.nan,

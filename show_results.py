@@ -33,6 +33,8 @@ def main():
     meth = d["method"].astype(str) if "method" in d.columns else pd.Series("", index=d.index)
     base = d[meth.str.startswith("MAP<")].copy()
     model = d[~meth.str.startswith("MAP<")].sort_values("burden")
+    selected = (model[model["selected_on_val"].astype(bool)]
+                if "selected_on_val" in model else model.iloc[0:0])
 
     print("METRICS: util = mean episode utility (detection x timeliness) |",
           "sens/PPV/warn/false/burden as before\n")
@@ -55,7 +57,7 @@ def main():
     if len(ref):
         ref = ref.iloc[0]
         print("  baseline " + _fmt(ref))
-        cand = feasible(model[model["burden"] <= ref["burden"] + 1e-9])
+        cand = feasible(selected[selected["burden"] <= ref["burden"] + 1e-9])
         if len(cand):
             best = cand.sort_values("utility", ascending=False).iloc[0]
             print("  model    " + _fmt(best) + "  [feasible]")
@@ -64,9 +66,10 @@ def main():
         else:
             print("  (no model policy at/below baseline burden)")
 
-    print(f"\nRECOMMENDED (feasible: false<={args.false_cap}/hr, PPV>={args.ppv_min}, "
-          f"gap<={args.gap_max}; burden<={args.budget}/hr; max utility):")
-    feas = feasible(model[model["burden"] <= args.budget])
+    print(f"\nRECOMMENDED (selected on validation; TEST metrics shown; "
+          f"false<={args.false_cap}/hr, PPV>={args.ppv_min}, "
+          f"gap<={args.gap_max}; burden<={args.budget}/hr):")
+    feas = feasible(selected[selected["burden"] <= args.budget])
     if len(feas):
         best = feas.sort_values("utility", ascending=False).iloc[0]
         print(_fmt(best))
@@ -75,11 +78,14 @@ def main():
         print("  no feasible policy under these constraints; relax --false-cap/--budget")
         print("  (the MAP<72 baseline may be the best feasible option)")
 
-    lk = os.path.join(R, "leakage.csv")
-    if os.path.exists(lk):
-        s = pd.read_csv(lk, index_col=0).iloc[:, 0]
-        print(f"\nGBM AUC:  trend={s['trend']:.3f}  leak={s['leak']:.3f}  "
-              f"naive={s['naive_currentMAP']:.3f}")
+    ab = os.path.join(R, "ablations.csv")
+    if os.path.exists(ab):
+        a = pd.read_csv(ab, index_col=0)
+        print("\nMODEL ABLATIONS (test AUC):")
+        for name, r in a.iterrows():
+            print(f"  {name:12s} AUC {r['auc']:.3f}"
+                  + (f"  Brier {r['brier_cal']:.3f}" if "brier_cal" in r
+                     and pd.notna(r.get("brier_cal")) else ""))
 
 
 if __name__ == "__main__":

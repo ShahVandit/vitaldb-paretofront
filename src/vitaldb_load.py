@@ -87,8 +87,28 @@ def select_cohort(min_dur_min: float = 20.0, min_age: float = 18.0) -> pd.DataFr
     c["win_end"] = c["aneend"]
     c["dur_min"] = (c["win_end"] - c["win_start"]) / 60.0
     keep = (c.age >= min_age) & (c.dur_min >= min_dur_min) & c.win_end.notna()
-    cols = ["caseid", "win_start", "win_end", "dur_min"] + SUBGROUP_COLS
+    cols = ["caseid", "subjectid", "win_start", "win_end", "dur_min"] + SUBGROUP_COLS
     return c.loc[keep, cols].reset_index(drop=True)
+
+
+def subject_split(meta: pd.DataFrame, fracs=(0.5, 0.15, 0.15, 0.2), seed: int = 0):
+    """4-way split by SUBJECT (VitalDB repeats surgeries; splitting by caseid leaks a
+    patient across folds). Returns {train,val,cal,test: [caseids]} and writes
+    data/splits.json (subject ids + case ids per fold)."""
+    import json
+    subs = meta["subjectid"].dropna().unique().copy()
+    np.random.default_rng(seed).shuffle(subs)
+    n = len(subs)
+    c1 = int(fracs[0] * n)
+    c2 = c1 + int(fracs[1] * n)
+    c3 = c2 + int(fracs[2] * n)
+    subj = {"train": subs[:c1], "val": subs[c1:c2], "cal": subs[c2:c3], "test": subs[c3:]}
+    caseids = {k: meta.loc[meta.subjectid.isin(v), "caseid"].astype(int).tolist()
+               for k, v in subj.items()}
+    with open(os.path.join(DATA, "splits.json"), "w") as f:
+        json.dump({"subjects": {k: [int(x) for x in v] for k, v in subj.items()},
+                   "caseids": caseids}, f)
+    return caseids
 
 
 def _tids_for(trks: pd.DataFrame, caseid: int) -> dict:
